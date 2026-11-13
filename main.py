@@ -47,8 +47,10 @@ async def startup():
     asyncio.create_task(tiktok.start())
 
 @app.get("/")
-async def home():
-    return {"message": "Slime LIVE oyunu çalışıyor"}
+async def root():
+    from fastapi.responses import FileResponse
+    return FileResponse("static/index.html")
+"}
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
