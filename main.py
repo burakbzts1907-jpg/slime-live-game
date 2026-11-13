@@ -2,64 +2,55 @@ import os
 import asyncio
 import json
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from TikTokLive import TikTokLiveClient
-from TikTokLive.events import ConnectEvent, DisconnectEvent, GiftEvent
+from TikTokLive.events import ConnectEvent, LikeEvent, GiftEvent
 
 app = FastAPI()
-clients = set()
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+clients = set()
 USERNAME = os.getenv("TIKTOK_USERNAME", "user27612891182928372810")
 tiktok = TikTokLiveClient(unique_id=USERNAME)
 
 async def broadcast(data):
-    dead = []
-    for ws in clients:
+    for ws in list(clients):
         try:
             await ws.send_text(json.dumps(data))
-        except Exception:
-            dead.append(ws)
-    for ws in dead:
-        clients.discard(ws)
+        except:
+            clients.remove(ws)
 
 @tiktok.on(ConnectEvent)
-async def connected(event):
-    await broadcast({"type": "status", "message": "TikTok bağlandı!"})
+async def on_connect(event):
+    await broadcast({"type": "log", "message": f"Bağlandı: @{event.unique_id}"})
 
-@tiktok.on(DisconnectEvent)
-async def disconnected(event):
-    await broadcast({"type": "status", "message": "TikTok bağlantısı kesildi"})
+@tiktok.on(LikeEvent)
+async def on_like(event):
+    await broadcast({"type": "like", "message": f"{event.user.nickname} beğendi!"})
 
 @tiktok.on(GiftEvent)
-async def gift(event):
-    if getattr(event, "repeat_end", True) is False:
-        return
+async def on_gift(event):
+    await broadcast({"type": "gift", "message": f"{event.user.nickname} {event.gift.name} gönderdi!"})
 
-    await broadcast({
-        "type": "gift",
-        "gift": str(event.gift.name),
-        "user": str(event.user.nickname),
-        "count": int(getattr(event, "repeat_count", 1))
-    })
-
-@app.on_event("startup")
-async def startup():
-    asyncio.create_task(tiktok.start())
+@app.websocket("/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    clients.add(websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            packet = json.loads(data)
+            action = packet.get("action")
+            await broadcast({"type": action, "message": f"Test: {action} eklendi!"})
+    except WebSocketDisconnect:
+        clients.remove(websocket)
 
 @app.get("/")
 async def root():
-    from fastapi.responses import FileResponse
     return FileResponse("static/index.html")
-"}
 
-@app.websocket("/ws")
-async def websocket_endpoint(ws: WebSocket):
-    await ws.accept()
-    clients.add(ws)
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        clients.discard(ws)
-
-app.mount("/static", StaticFiles(directory="static"), name="static")
+@app.on_event("startup")
+async def startup():
+    asyncio.create_task(tiktok.connect())
