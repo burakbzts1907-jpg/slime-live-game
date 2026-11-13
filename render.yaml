@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: slime-live-game
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: TIKTOK_USERNAME
+        value: user27612891182928372810
+        
